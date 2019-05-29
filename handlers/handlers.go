@@ -153,6 +153,8 @@ func ValidateRequestHandler(w http.ResponseWriter, r *http.Request) {
 	jwt := FindJWT(r)
 	// if jwt != "" {
 	if jwt == "" {
+
+	    log.Debugf("FindJWT - empty");
 		// If the module is configured to allow public access with no authentication, return 200 now
 		if !cfg.Cfg.PublicAccess {
 			error401(w, r, AuthError{Error: "no jwt found in request"})
@@ -161,6 +163,7 @@ func ValidateRequestHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	log.Debugf("FindJWT: %s", jwt);
 
 	claims, err := ClaimsFromJWT(jwt)
 	if err != nil {
@@ -173,6 +176,10 @@ func ValidateRequestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// we don't have a username:
+	// 2019-05-29T08:34:43.459Z        DEBUG   JWT Claims: {Username: Sites:[xxxx] CustomClaims:map[] PAccessToken: PIdToken: StandardClaims:{Audience: ExpiresAt:1559133267 Id: IssuedAt:0 Issuer:Vouch NotBefore:0 Subject:}}
+	// 2019-05-29T08:34:43.459Z        ERROR   no Username found in jwt
+	/*
 	if claims.Username == "" {
 		// no email in jwt
 		if !cfg.Cfg.PublicAccess {
@@ -182,8 +189,10 @@ func ValidateRequestHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
 	fastlog.Info("jwt cookie",
 		zap.String("username", claims.Username))
+	*/
 
 	if !cfg.Cfg.AllowAllUsers {
 		if !jwtmanager.SiteInClaims(r.Host, &claims) {
@@ -225,7 +234,7 @@ func ValidateRequestHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Add(cfg.Cfg.Headers.User, claims.Username)
+	//w.Header().Add(cfg.Cfg.Headers.User, claims.Username)
 	w.Header().Add(cfg.Cfg.Headers.Success, "true")
 
 	if cfg.Cfg.Headers.AccessToken != "" {
@@ -719,7 +728,9 @@ func getUserInfoFromADFS(r *http.Request, user *structs.User, customClaims *stru
 	formData := url.Values{}
 	formData.Set("code", code)
 	formData.Set("grant_type", "authorization_code")
-	formData.Set("resource", cfg.GenOAuth.RedirectURL)
+	// microsoft says: {"error":"invalid_request","error_description":"AADSTS901002: The 'resource' request parameter is not supported.\r\nTrace ID: ...
+	// so disable this field
+	// formData.Set("resource", cfg.GenOAuth.RedirectURL)
 	formData.Set("client_id", cfg.GenOAuth.ClientID)
 	formData.Set("redirect_uri", cfg.GenOAuth.RedirectURL)
 	if cfg.GenOAuth.ClientSecret != "" {
@@ -748,14 +759,17 @@ func getUserInfoFromADFS(r *http.Request, user *structs.User, customClaims *stru
 	body, _ := ioutil.ReadAll(userinfo.Body)
 	tokenRes := adfsTokenRes{}
 
+	log.Debugf("ADFS token call response body x", body);
+
 	if err := json.Unmarshal(body, &tokenRes); err != nil {
 		log.Errorf("oauth2: cannot fetch token: %v", err)
 		return nil
 	}
+	log.Debugf("ADFS token call response json %+v\n", tokenRes);
 
 	s := strings.Split(tokenRes.IDToken, ".")
 	if len(s) < 2 {
-		log.Error("jws: invalid token received")
+		log.Errorf("jws: invalid token received %s", tokenRes.IDToken)
 		return nil
 	}
 
@@ -772,6 +786,10 @@ func getUserInfoFromADFS(r *http.Request, user *structs.User, customClaims *stru
 		log.Error(err)
 		return err
 	}
+	// keep accesstoken in our claims, so we're able to pass it back to nginx in a header 
+	customClaims.Claims["accesstoken"] = tokenRes.AccessToken
+	log.Infof("customClaims: %+v", customClaims)
+	log.Infof("customClaims.Claims: %+v", customClaims.Claims)
 	adfsUser.PrepareUserData()
 	user.Username = adfsUser.Username
 	user.Email = adfsUser.Email

@@ -42,6 +42,12 @@ func PutUser(u structs.User) error {
 			log.Debugf("new user.. setting created on to %v", u.CreatedOn)
 		}
 
+        log.Debugf("user for gobEncodeUser: %+v", u)
+        //  user for gobEncodeUser: {Username: Name: Email:carsten.jahn@bayer.com CreatedOn:1559118612 LastUpdate:1559118612 ID:1}
+        // ERROR   key required
+        u.Username = u.Email
+        log.Debugf("fixed user for gobEncodeUser: %+v", u)
+
 		eU, err := gobEncodeUser(&u)
 		if err != nil {
 			log.Error(err)
